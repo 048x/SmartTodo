@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 白色清单卡片 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,32 H68 A8,8 0 0 1 76,40 V68 A8,8 0 0 1 68,76 H40 A8,8 0 0 1 32,68 V40 A8,8 0 0 1 40,32 Z" />
+
+    <!-- 第一条：已完成 -->
+    <path
+        android:fillColor="#4C6FFF"
+        android:pathData="M43,40 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M41,40 L42.6,41.6 L45.4,38.5" />
+    <path
+        android:fillColor="#BDCDFF"
+        android:pathData="M51,38.5 H66 A1.6,1.6 0 0 1 66,41.7 H51 A1.6,1.6 0 0 1 51,38.5 Z" />
+
+    <!-- 第二条 -->
+    <path
+        android:strokeColor="#CBD3E4"
+        android:strokeWidth="1.4"
+        android:fillColor="#00000000"
+        android:pathData="M43,51 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0" />
+    <path
+        android:fillColor="#D7DEEE"
+        android:pathData="M51,49.5 H66 A1.6,1.6 0 0 1 66,52.7 H51 A1.6,1.6 0 0 1 51,49.5 Z" />
+
+    <!-- 第三条 -->
+    <path
+        android:strokeColor="#CBD3E4"
+        android:strokeWidth="1.4"
+        android:fillColor="#00000000"
+        android:pathData="M43,62 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0" />
+    <path
+        android:fillColor="#D7DEEE"
+        android:pathData="M51,60.5 H66 A1.6,1.6 0 0 1 66,63.7 H51 A1.6,1.6 0 0 1 51,60.5 Z" />
+</vector>

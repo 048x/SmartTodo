@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  无障碍代点目标文字配置表。
+  所有需要“按文字找控件”的词都放这里，业务代码不再硬编码；
+  适配新 ROM / 新系统版本时，只改这个文件（或新增 values-xxx 翻译）。
+-->
+<resources>
+
+    <!-- 通用确认按钮 -->
+    <string-array name="perm_confirm_words">
+        <item>允许</item>
+        <item>确定</item>
+        <item>同意</item>
+        <item>开</item>
+        <item>Allow</item>
+        <item>OK</item>
+        <item>Got it</item>
+    </string-array>
+
+    <!-- 通知使用权页的开关 / 确认 -->
+    <string-array name="perm_notif_switch_words">
+        <item>允许</item>
+        <item>确定</item>
+        <item>Allow</item>
+        <item>OK</item>
+    </string-array>
+
+    <!-- 电池优化对话框 -->
+    <string-array name="perm_battery_words">
+        <item>允许</item>
+        <item>确定</item>
+        <item>同意</item>
+        <item>不限制</item>
+        <item>Allow</item>
+        <item>OK</item>
+    </string-array>
+
+    <!-- 所有文件访问权限 -->
+    <string-array name="perm_all_files_words">
+        <item>允许访问所有文件</item>
+        <item>允许管理所有文件</item>
+        <item>允许</item>
+        <item>确定</item>
+        <item>Allow management of all files</item>
+        <item>Allow</item>
+    </string-array>
+
+    <!-- 悬浮窗 / 特殊权限页可能出现的按钮 -->
+    <string-array name="perm_overlay_words">
+        <item>允许</item>
+        <item>确定</item>
+        <item>允许显示在其他应用上层</item>
+        <item>Allow</item>
+        <item>OK</item>
+    </string-array>
+
+    <!-- ===== ROM 差异补充词表（追加到基础词表之后） ===== -->
+    <string-array name="perm_rom_xiaomi_extra">
+        <item>前往开启</item>
+        <item>去开启</item>
+        <item>允许受限制的设置</item>
+    </string-array>
+
+    <string-array name="perm_rom_huawei_extra">
+        <item>去设置</item>
+        <item>立即开启</item>
+        <item>始终允许</item>
+    </string-array>
+
+    <string-array name="perm_rom_oppo_extra">
+        <item>立即开启</item>
+        <item>允许本次使用</item>
+        <item>始终允许</item>
+    </string-array>
+
+    <string-array name="perm_rom_vivo_extra">
+        <item>立即开启</item>
+        <item>始终允许</item>
+    </string-array>
+
+</resources>

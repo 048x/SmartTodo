@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">智能待办</string>
+    <string name="add_hint">添加一条待办，例如：周五前提交实验报告</string>
+    <string name="accessibility_label">智能待办 · 一键授权助手</string>
+    <string name="accessibility_desc">用途只有两件：① 替你点开系统设置里的开关，完成通知、电池等授权；② 在没给通知使用权时，读取通知栏文字来提取待办。全部在本机处理，不会上传。</string>
+</resources>
