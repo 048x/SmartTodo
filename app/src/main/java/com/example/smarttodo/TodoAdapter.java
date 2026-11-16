@@ -160,6 +160,10 @@ public class TodoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         h.item = it;
 
         h.check.setImageResource(it.done ? R.drawable.ic_check_on : R.drawable.ic_check_off);
+        // 左滑已改为「删除」，完成/取消完成保留在左侧勾选图标上
+        h.check.setOnClickListener(v -> {
+            if (onAction != null) onAction.onAction(it, SwipeRow.ACTION_TOGGLE);
+        });
         h.title.setText(it.title);
 
         int flags = h.title.getPaintFlags();

@@ -1,5 +1,8 @@
 package com.example.smarttodo;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -10,41 +13,47 @@ import android.view.VelocityTracker;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /**
- * 列表行容器 —— 左滑两档阈值：
+ * 列表行容器 —— 左滑删除（Swipe to Delete）：
  *
- *   A（近阈值，默认 52dp）：滑过 A，松手后卡片停住，只露出右侧「删除」按钮，点击才删除；
- *   B（远阈值，默认 150dp）：滑过 B，松手直接执行「完成 / 未完成」，卡片飞回并收起。
+ *   阈值 A（默认 80dp）：拖过 A 松手 → 吸附停住，右侧露出红色「删除」按钮，点击才删除；
+ *   阈值 B（行宽的一半）：拖过 B 松手 → 直接删除：卡片向左滑出并淡出、高度收缩到 0，
+ *                        下方行平滑上移补位，随后回调 ACTION_DELETE 删除数据。
+ *   不足 A 松手 → 弹回原位，不展开任何按钮。
  *
- * 拖动过程 1:1 跟随手指（超过 B 后加一点摩擦，仍保持跟手），全程不会越界乱飘。
+ * 拖动全程 1:1 跟随手指，手指松开后由 ease-out 动画收尾（吸附 / 回弹 / 滑出补位约 300ms）。
  * 同一时刻只允许一行展开：展开新行先收旧行；列表滚动、点击其它条目、页面 onPause 都会收起。
+ * 行被 RecyclerView 回收或复用时统一走 reset()/bind() 恢复高度与透明度，不留滑动残留。
  *
- * 想调参数：直接改下面的 THRESHOLD_A_DP / THRESHOLD_B_DP，
- * 用户设置里的「灵敏度」(sens) 会与 dp 值相乘，整体放大/缩小。
+ * 想调参数：改下面的 THRESHOLD_A_DP 与 THRESHOLD_B_RATIO，
+ * 用户设置里的「灵敏度」(sens) 会与 A 相乘，整体放大/缩小。
  */
 public class SwipeRow extends FrameLayout {
 
     public static final int ACTION_TOGGLE = 1;
     public static final int ACTION_DELETE = 2;
 
-    // ===== 可调参数：两档阈值（单位 dp，会再乘以设置里的灵敏度） =====
-    /** 阈值 A：松手后停住，露出【删除】按钮。 */
-    public static int THRESHOLD_A_DP = 52;
-    /** 阈值 B：松手直接完成（必须 > A），过程中不展示删除按钮。 */
-    public static int THRESHOLD_B_DP = 150;
-    /** 超过 B 之后的拖动摩擦（0.2 = 手指再走 100dp，卡片只走 20dp）。 */
-    private static final float OVER_B_FRICTION = 0.2f;
+    // ===== 可调参数：两档阈值 =====
+    /** 阈值 A：拖过则松手吸附，露出【删除】按钮（单位 dp，会再乘以设置里的灵敏度）。 */
+    public static int THRESHOLD_A_DP = 80;
+    /** 阈值 B：占行宽的比例，拖过则松手直接删除（0.5 = 一半宽度，必须大于 A 的等效距离）。 */
+    public static final float THRESHOLD_B_RATIO = 0.5f;
+
+    /** 吸附 / 回弹动画时长。 */
+    private static final int SNAP_MS = 300;
+    /** 滑出并淡出的时长。 */
+    private static final int EXIT_MS = 180;
+    /** 高度收缩到 0、下方行补位的时长。 */
+    private static final int COLLAPSE_MS = 280;
 
     public interface Listener { void onAction(int action); }
 
     private final View content;
     private final TextView hintDelete;
-    private final TextView hintToggle;
     private final int delSpan;
     private final float sens;
     private final boolean haptic;
@@ -52,17 +61,22 @@ public class SwipeRow extends FrameLayout {
 
     private Listener listener;
     private long boundId = -1;
-    private boolean done;
 
     private float downX, downY;
     private boolean decided;
     private boolean dragging;
     private float dx;
-    /** 手指实际滑过的距离（未加摩擦），松手判定用这个，避免阈值被摩擦影响。 */
+    /** 手指实际滑过的距离（未加摩擦），松手判定用这个。 */
     private float lastAx;
     private boolean tickA, tickB;
     private boolean opened;
     private VelocityTracker tracker;
+
+    /** 删除动画状态：避免重复触发，也用于复用时的视觉恢复。 */
+    private boolean deleting;
+    private boolean deleteNotified;
+    /** >= 0 时覆盖 onMeasure 的高度，用于高度收缩动画。 */
+    private int forcedHeight = -1;
 
     /** 本次手势换算后的阈值像素。 */
     private float aPx, bPx;
@@ -81,16 +95,6 @@ public class SwipeRow extends FrameLayout {
         sens = sp.getFloat("sens", 1f);
         haptic = sp.getBoolean("haptic", true);
 
-        // 背景层：A 档显示「删除」，B 档显示「完成 / 未完成」，两者位置重叠、交叉淡入
-        hintToggle = makeHint(c, "完成", 0xFF16A34A, R.drawable.ic_swipe_check);
-        LayoutParams rp = new LayoutParams(delSpan, LayoutParams.MATCH_PARENT);
-        rp.gravity = Gravity.END;
-        rp.rightMargin = dp(6);
-        hintToggle.setVisibility(INVISIBLE);
-        hintToggle.setClickable(false);
-        hintToggle.setFocusable(false);
-        addView(hintToggle, rp);
-
         hintDelete = makeHint(c, "删除", 0xFFDC2626, R.drawable.ic_swipe_delete);
         LayoutParams lp = new LayoutParams(delSpan, LayoutParams.MATCH_PARENT);
         lp.gravity = Gravity.END;
@@ -98,9 +102,9 @@ public class SwipeRow extends FrameLayout {
         hintDelete.setVisibility(INVISIBLE);
         addView(hintDelete, lp);
 
-        // A 档停住后，点删除才真正删除；B 档由松手自动执行，不需要点
+        // 吸附停住后，点删除按钮才真正删除
         hintDelete.setOnClickListener(v -> {
-            if (opened) commit(ACTION_DELETE, -getWidth());
+            if (opened) animateDelete();
         });
 
         content = LayoutInflater.from(c).inflate(layoutRes, this, false);
@@ -137,6 +141,10 @@ public class SwipeRow extends FrameLayout {
     public void setListener(Listener l) { listener = l; }
 
     public void bind(long id, boolean isDone) {
+        // 上一轮删除动画把高度压到了 0，复用到新数据前必须恢复原始高度与透明度
+        if (deleting || forcedHeight >= 0 || content.getAlpha() < 1f) {
+            restoreIdle();
+        }
         if (id != boundId) {
             boundId = id;
             close();
@@ -144,16 +152,13 @@ public class SwipeRow extends FrameLayout {
             // 复用 / 数据刷新后，只有"当前全局展开的那一行"才允许保持展开
             close();
         }
-        done = isDone;
-        hintToggle.setText(done ? "未完成" : "完成");
-        hintToggle.setTextColor(done ? 0xFF8A90A0 : 0xFF16A34A);
     }
 
     /** RecyclerView 回收 / 列表重置时调用，彻底清掉滑动残留。 */
     public void reset() {
         content.animate().cancel();
         hintDelete.animate().cancel();
-        hintToggle.animate().cancel();
+        restoreIdle();
         close();
         dragging = false;
         decided = false;
@@ -164,6 +169,23 @@ public class SwipeRow extends FrameLayout {
             tracker.recycle();
             tracker = null;
         }
+    }
+
+    /** 恢复成"未滑动、未删除"的初始视觉，供复用。 */
+    private void restoreIdle() {
+        content.animate().cancel();
+        hintDelete.animate().cancel();
+        content.setAlpha(1f);
+        content.setTranslationX(0f);
+        content.setRotation(0f);
+        content.setScaleX(1f);
+        content.setScaleY(1f);
+        hintDelete.setAlpha(0f);
+        hintDelete.setVisibility(INVISIBLE);
+        forcedHeight = -1;
+        deleting = false;
+        deleteNotified = false;
+        requestLayout();
     }
 
     /** 是否已滑开、删除按钮可点。 */
@@ -194,8 +216,8 @@ public class SwipeRow extends FrameLayout {
         return r == this;
     }
 
-    /** A 档停位：露出删除按钮即可。 */
-    private float nearX() { return -(delSpan + dp(10)); }
+    /** A 档停位：刚好露出删除按钮。 */
+    private float nearX() { return -(delSpan + dp(8)); }
 
     private void close() {
         opened = false;
@@ -205,9 +227,7 @@ public class SwipeRow extends FrameLayout {
         content.setScaleY(1f);
         content.setRotation(0f);
         hintDelete.setVisibility(INVISIBLE);
-        hintToggle.setVisibility(INVISIBLE);
         hintDelete.setAlpha(0f);
-        hintToggle.setAlpha(0f);
         dx = 0f;
     }
 
@@ -216,6 +236,10 @@ public class SwipeRow extends FrameLayout {
         super.onDetachedFromWindow();
         // 离开窗口（被回收 / 滑出屏幕）时不要留下静态引用
         if (opened) close();
+        if (deleting && !deleteNotified) {
+            // 动画被系统中断时补一次回调，避免数据层面漏删
+            finishDelete();
+        }
         if (tracker != null) {
             tracker.recycle();
             tracker = null;
@@ -226,8 +250,9 @@ public class SwipeRow extends FrameLayout {
     public boolean onInterceptTouchEvent(MotionEvent e) {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                if (deleting) return false;
                 aPx = dp(THRESHOLD_A_DP) * sens;
-                bPx = dp(THRESHOLD_B_DP) * sens;
+                bPx = (getWidth() > 0 ? getWidth() : dp(320)) * THRESHOLD_B_RATIO;
                 // 已滑开时，点卡片区域先收起；点右侧删除按钮交给按钮自己处理
                 if (opened && getWidth() > 0 && e.getX() < getWidth() - Math.abs(dx)) {
                     closeQuietly();
@@ -249,19 +274,15 @@ public class SwipeRow extends FrameLayout {
                 if (decided) return dragging;
                 float mx = e.getX() - downX;
                 float my = e.getY() - downY;
-                if (Math.abs(mx) > dp(8) && Math.abs(mx) > Math.abs(my) * 1.35f) {
+                if (mx < 0 && Math.abs(mx) > dp(8) && Math.abs(mx) > Math.abs(my) * 1.35f) {
                     decided = true;
                     dragging = true;
-                    if (mx < 0) {
-                        hintDelete.setVisibility(VISIBLE);
-                        hintToggle.setVisibility(VISIBLE);
-                        hintDelete.setAlpha(0f);
-                        hintToggle.setAlpha(0f);
-                    }
+                    hintDelete.setVisibility(VISIBLE);
+                    hintDelete.setAlpha(0f);
                     if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                     return true;
                 }
-                if (Math.abs(my) > dp(8)) {
+                if (Math.abs(mx) > dp(8) && Math.abs(my) > dp(8)) {
                     decided = true;
                     dragging = false;
                 }
@@ -273,22 +294,17 @@ public class SwipeRow extends FrameLayout {
 
     @Override
     public boolean onTouchEvent(MotionEvent e) {
-        if (!dragging) return super.onTouchEvent(e);
+        if (!dragging || deleting) return super.onTouchEvent(e);
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_MOVE: {
                 if (tracker != null) tracker.addMovement(e);
                 float raw = e.getX() - downX;
+                if (raw > 0) return true;
                 float ax = Math.abs(raw);
                 lastAx = ax;
 
-                // 1:1 跟随；超过 B 之后加摩擦，避免卡片飞出屏幕
-                float x;
-                if (ax <= bPx) {
-                    x = raw;
-                } else {
-                    float extra = (ax - bPx) * OVER_B_FRICTION;
-                    x = Math.signum(raw) * (bPx + extra);
-                }
+                // 全程 1:1 跟手，最多滑到整行宽度，不会越界乱飘
+                float x = Math.max(raw, -getWidth());
                 float lift = Math.min(1f, ax / dp(30));
                 dx = x;
                 content.setTranslationX(x);
@@ -297,14 +313,10 @@ public class SwipeRow extends FrameLayout {
                 // 跟手倾斜：滑得越多，卡片侧得越明显，最多 2.6 度
                 content.setRotation(Math.max(-2.6f, Math.min(2.6f, x / 42f)));
 
-                // A 档「删除」淡入；接近 B 时淡出，同时「完成」淡入
-                float farProg = bPx <= 0 ? 0f : Math.max(0f, (ax - bPx * 0.75f) / (bPx * 0.25f));
-                farProg = Math.min(1f, farProg);
-                float delProg = Math.min(1f, ax / (delSpan * 0.8f)) * (1f - farProg);
-                hintDelete.setAlpha(delProg);
-                hintToggle.setAlpha(farProg);
+                // 删除按钮随滑动距离逐步显形
+                hintDelete.setAlpha(Math.min(1f, ax / (delSpan * 0.8f)));
 
-                // 触感：过 A 轻一点，过 B 重一点
+                // 触感：过 A 轻一点，过 B（半宽）重一点
                 if (!tickA && ax >= aPx) {
                     if (haptic) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
                     tickA = true;
@@ -335,12 +347,13 @@ public class SwipeRow extends FrameLayout {
                     // 被系统取消：一律回弹，绝不执行动作
                     snapBack();
                 } else if (left && lastAx >= bPx) {
-                    // B 档：松手直接完成 / 取消完成，卡片飞出后收回
-                    commit(ACTION_TOGGLE, -getWidth());
+                    // B 档：拖过一半宽度，松手直接删除（滑出 + 淡出 + 高度收缩）
+                    if (haptic) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                    animateDelete();
                 } else if (left && (lastAx >= aPx || (flingLeft && lastAx > aPx * 0.5f))) {
                     // A 档：停住，只露删除按钮，等用户点击
                     settleTo(nearX());
-                    if (haptic) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                    if (haptic) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
                 } else {
                     snapBack();
                 }
@@ -355,61 +368,98 @@ public class SwipeRow extends FrameLayout {
         return true;
     }
 
-    /** A 档吸附：卡片停住、删除按钮可点击。 */
+    /** A 档吸附：卡片停住、删除按钮可点击（ease-out，约 300ms）。 */
     private void settleTo(final float target) {
         opened = true;
         markOpened();
         dx = target;
         hintDelete.setVisibility(VISIBLE);
-        hintToggle.setVisibility(INVISIBLE);
-        hintToggle.setAlpha(0f);
         content.animate().translationX(target).scaleX(1f).scaleY(1f).rotation(0f)
-                .setDuration(240).setInterpolator(new DecelerateInterpolator(1.8f)).start();
-        float ax = Math.abs(target);
-        float alpha = Math.min(1f, ax / (delSpan * 0.8f));
-        hintDelete.animate().alpha(alpha).setDuration(200).start();
+                .setDuration(SNAP_MS)
+                .setInterpolator(new DecelerateInterpolator(1.6f)).start();
+        float alpha = Math.min(1f, Math.abs(target) / (delSpan * 0.8f));
+        hintDelete.animate().alpha(alpha).setDuration(SNAP_MS)
+                .setInterpolator(new DecelerateInterpolator(1.6f)).start();
     }
 
+    /** 不足 A：弹回原位（ease-out）。 */
     private void snapBack() {
+        if (deleting) return;
         opened = false;
         clearOpened();
-        content.animate().translationX(0f).scaleX(1f).scaleY(1f).rotation(0f).setDuration(200)
-                .setInterpolator(new DecelerateInterpolator(1.8f)).start();
+        content.animate().translationX(0f).scaleX(1f).scaleY(1f).rotation(0f)
+                .setDuration(SNAP_MS)
+                .setInterpolator(new DecelerateInterpolator(1.6f)).start();
         hintDelete.animate().alpha(0f).setDuration(160).withEndAction(() -> {
             if (!dragging) hintDelete.setVisibility(INVISIBLE);
-        }).start();
-        hintToggle.animate().alpha(0f).setDuration(160).withEndAction(() -> {
-            if (!dragging) hintToggle.setVisibility(INVISIBLE);
         }).start();
         dx = 0f;
     }
 
-    private void commit(final int action, float targetX) {
+    /**
+     * B 档 / 点删除按钮：整行向左滑出并淡出 → 高度收缩到 0（下方行平滑上移）→ 回调删除。
+     */
+    private void animateDelete() {
+        if (deleting) return;
+        deleting = true;
+        deleteNotified = false;
         opened = false;
         clearOpened();
-        content.animate().translationX(targetX).scaleX(1f).scaleY(1f).rotation(0f).setDuration(170)
-                .setInterpolator(new AccelerateInterpolator(1.4f)).withEndAction(() -> {
-            content.setTranslationX(0f);
-            content.setScaleX(1f);
-            content.setScaleY(1f);
-            content.setRotation(0f);
-            hintDelete.setVisibility(INVISIBLE);
-            hintToggle.setVisibility(INVISIBLE);
-            hintDelete.setAlpha(0f);
-            hintToggle.setAlpha(0f);
-            dx = 0f;
-            if (listener != null) listener.onAction(action);
-        }).start();
+        final int w = getWidth() > 0 ? getWidth() : dp(360);
+        hintDelete.animate().alpha(0f).setDuration(120).start();
+        content.animate().translationX(-w).rotation(0f).alpha(0f)
+                .setDuration(EXIT_MS)
+                .setInterpolator(new DecelerateInterpolator(1.4f))
+                .withEndAction(this::collapseThenDelete).start();
+    }
+
+    /** 滑出结束后收缩高度，让下方行补位。 */
+    private void collapseThenDelete() {
+        if (deleteNotified) return;
+        final int from = getHeight();
+        if (from <= 0) {
+            finishDelete();
+            return;
+        }
+        ValueAnimator va = ValueAnimator.ofInt(from, 0);
+        va.setDuration(COLLAPSE_MS);
+        va.setInterpolator(new DecelerateInterpolator(1.6f));
+        va.addUpdateListener(a -> {
+            forcedHeight = (int) a.getAnimatedValue();
+            requestLayout();
+        });
+        va.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                forcedHeight = 0;
+                requestLayout();
+                finishDelete();
+            }
+        });
+        va.start();
+    }
+
+    /** 通知业务层删除数据；视图在数据刷新后被移除，复用时由 bind()/reset() 恢复。 */
+    private void finishDelete() {
+        if (deleteNotified) return;
+        deleteNotified = true;
+        deleting = false;
+        hintDelete.setVisibility(INVISIBLE);
+        hintDelete.setAlpha(0f);
+        if (listener != null) listener.onAction(ACTION_DELETE);
     }
 
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
         super.onMeasure(widthSpec, heightSpec);
+        if (forcedHeight >= 0) {
+            setMeasuredDimension(getMeasuredWidth(), forcedHeight);
+            return;
+        }
         int contentH = content.getMeasuredHeight();
         if (contentH > 0) {
             int exactH = MeasureSpec.makeMeasureSpec(contentH, MeasureSpec.EXACTLY);
             hintDelete.measure(MeasureSpec.makeMeasureSpec(delSpan, MeasureSpec.EXACTLY), exactH);
-            hintToggle.measure(MeasureSpec.makeMeasureSpec(delSpan, MeasureSpec.EXACTLY), exactH);
             setMeasuredDimension(getMeasuredWidth(), contentH + bottomMargin);
         }
     }
