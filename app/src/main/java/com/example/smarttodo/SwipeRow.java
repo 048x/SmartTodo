@@ -21,11 +21,10 @@ import android.widget.TextView;
  * 列表行容器 —— 左滑删除（Swipe to Delete）：
  *
  *   阈值 A（默认 80dp）：拖过 A 松手 → 吸附停住，右侧露出红色「删除」按钮，点击才删除；
- *   阈值 B（行宽的一半）：拖过 B 松手 → 直接删除：卡片向左滑出并淡出、高度收缩到 0，
- *                        下方行平滑上移补位，随后回调 ACTION_DELETE 删除数据。
+ *   阈值 B（行宽的一半）：拖过 B 松手 → 直接标记完成（回调 ACTION_TOGGLE），删除按钮隐藏，卡片收回。
  *   不足 A 松手 → 弹回原位，不展开任何按钮。
  *
- * 拖动全程 1:1 跟随手指，手指松开后由 ease-out 动画收尾（吸附 / 回弹 / 滑出补位约 300ms）。
+ * 拖动全程 1:1 跟随手指，手指松开后由 ease-out 动画收尾（吸附 / 回弹约 300ms）。
  * 同一时刻只允许一行展开：展开新行先收旧行；列表滚动、点击其它条目、页面 onPause 都会收起。
  * 行被 RecyclerView 回收或复用时统一走 reset()/bind() 恢复高度与透明度，不留滑动残留。
  *
@@ -40,7 +39,7 @@ public class SwipeRow extends FrameLayout {
     // ===== 可调参数：两档阈值 =====
     /** 阈值 A：拖过则松手吸附，露出【删除】按钮（单位 dp，会再乘以设置里的灵敏度）。 */
     public static int THRESHOLD_A_DP = 80;
-    /** 阈值 B：占行宽的比例，拖过则松手直接删除（0.5 = 一半宽度，必须大于 A 的等效距离）。 */
+    /** 阈值 B：占行宽的比例，拖过则松手直接标记完成（0.5 = 一半宽度，必须大于 A 的等效距离）。 */
     public static final float THRESHOLD_B_RATIO = 0.5f;
 
     /** 吸附 / 回弹动画时长。 */
@@ -313,8 +312,11 @@ public class SwipeRow extends FrameLayout {
                 // 跟手倾斜：滑得越多，卡片侧得越明显，最多 2.6 度
                 content.setRotation(Math.max(-2.6f, Math.min(2.6f, x / 42f)));
 
-                // 删除按钮随滑动距离逐步显形
-                hintDelete.setAlpha(Math.min(1f, ax / (delSpan * 0.8f)));
+                // 删除按钮：接近 A 时逐步显形，到 A 完全露出；进入 B 档前再渐隐（B 档执行完成，不再展示删除）
+                float show = Math.min(1f, Math.max(0f, (ax - aPx * 0.4f) / (aPx * 0.6f)));
+                float hide = ax > bPx * 0.85f
+                        ? Math.max(0f, (bPx - ax) / (bPx * 0.15f)) : 1f;
+                hintDelete.setAlpha(show * hide);
 
                 // 触感：过 A 轻一点，过 B（半宽）重一点
                 if (!tickA && ax >= aPx) {
@@ -347,9 +349,9 @@ public class SwipeRow extends FrameLayout {
                     // 被系统取消：一律回弹，绝不执行动作
                     snapBack();
                 } else if (left && lastAx >= bPx) {
-                    // B 档：拖过一半宽度，松手直接删除（滑出 + 淡出 + 高度收缩）
+                    // B 档：拖过一半宽度，松手直接标记完成，删除按钮隐藏、卡片收回
                     if (haptic) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-                    animateDelete();
+                    completeBySwipe();
                 } else if (left && (lastAx >= aPx || (flingLeft && lastAx > aPx * 0.5f))) {
                     // A 档：停住，只露删除按钮，等用户点击
                     settleTo(nearX());
@@ -397,7 +399,24 @@ public class SwipeRow extends FrameLayout {
     }
 
     /**
-     * B 档 / 点删除按钮：整行向左滑出并淡出 → 高度收缩到 0（下方行平滑上移）→ 回调删除。
+     * B 档：直接标记完成（ACTION_TOGGLE）。隐藏删除按钮，卡片 ease-out 收回原位。
+     * 业务逻辑完全复用原有完成/取消完成分支，这里只负责手势判定后的视觉收尾。
+     */
+    private void completeBySwipe() {
+        opened = false;
+        clearOpened();
+        hintDelete.animate().alpha(0f).setDuration(120).withEndAction(() -> {
+            if (!dragging) hintDelete.setVisibility(INVISIBLE);
+        }).start();
+        content.animate().translationX(0f).scaleX(1f).scaleY(1f).rotation(0f)
+                .setDuration(SNAP_MS)
+                .setInterpolator(new DecelerateInterpolator(1.6f)).start();
+        dx = 0f;
+        if (listener != null) listener.onAction(ACTION_TOGGLE);
+    }
+
+    /**
+     * 点删除按钮（A 档吸附后）：整行向左滑出并淡出 → 高度收缩到 0（下方行平滑上移）→ 回调删除。
      */
     private void animateDelete() {
         if (deleting) return;

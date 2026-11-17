@@ -11,8 +11,8 @@ android {
         applicationId "com.example.smarttodo"
         minSdk 24
         targetSdk 34
-        versionCode 18
-        versionName "3.13"
+        versionCode 19
+        versionName "3.14"
         manifestPlaceholders = [appName: "智能待办"]
     }
     buildTypes {
