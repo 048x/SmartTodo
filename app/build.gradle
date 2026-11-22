@@ -3,6 +3,9 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def keystoreFile = rootProject.file("keystore/smarttodo.jks")
+def hasReleaseKeystore = keystoreFile.exists()
+
 android {
     namespace 'com.example.smarttodo'
     compileSdk 34
@@ -15,14 +18,46 @@ android {
         versionName "3.14"
         manifestPlaceholders = [appName: "智能待办"]
     }
-    buildTypes {
-        release { minifyEnabled false }
+
+    signingConfigs {
+        // 正式签名：把 keystore/smarttodo.jks 放进来即可启用；
+        // 密码从环境变量读取，不写死在仓库里。
+        release {
+            if (hasReleaseKeystore) {
+                storeFile keystoreFile
+                storePassword System.getenv("SMARTTODO_STORE_PASSWORD") ?: "smarttodo"
+                keyAlias System.getenv("SMARTTODO_KEY_ALIAS") ?: "smarttodo"
+                keyPassword System.getenv("SMARTTODO_KEY_PASSWORD") ?: "smarttodo"
+            }
+        }
     }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+        release {
+            minifyEnabled false
+            // 没有正式 keystore 时退化为 debug 签名，保证 assembleRelease 一定能出包
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
     kotlinOptions { jvmTarget = '1.8' }
+
+    // 产物统一命名为 SmartTodo-<类型>-<版本>.apk，方便分发
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            def type = variant.buildType.name
+            def ver = variant.versionName
+            outputFileName = "SmartTodo-${type}-v${ver}.apk"
+        }
+    }
 }
 
 dependencies {

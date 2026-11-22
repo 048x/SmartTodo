@@ -1,0 +1,3 @@
+# 复制本文件为 local.properties，sdk.dir 改成你本机 Android SDK 的实际路径
+# Windows 路径示例（注意用正斜杠或双反斜杠）：sdk.dir=C\:/Users/你/Android/Sdk
+sdk.dir=/你的/Android/Sdk/路径

@@ -46,18 +46,40 @@
 | minSdk | 24 |
 | 依赖 | 仅 `androidx.recyclerview:recyclerview:1.3.2`，其余全部使用系统 API |
 
-## 构建
+## 构建与打包
 
-要求：JDK 17、Android SDK Platform 34。
+要求：JDK 17、Android SDK Platform 34、Build Tools 34.0.0。
+
+### 方式一：一键脚本（推荐本地打包）
 
 ```bash
 git clone https://github.com/048x/SmartTodo.git
 cd SmartTodo
-./gradlew assembleDebug
-# 产物：app/build/outputs/apk/debug/app-debug.apk
+chmod +x build-apk.sh
+
+./build-apk.sh            # 打 debug 包
+./build-apk.sh release    # 打 release 包
+./build-apk.sh test       # 只跑单元测试
+./build-apk.sh all        # 跑测试 + 同时打 debug/release
 ```
 
-`local.properties`（`sdk.dir`）与 `gradle.properties`（本机代理）不随仓库提供，请自行创建。
+脚本会自动检测 SDK（依次查找 `ANDROID_HOME`、`ANDROID_SDK_ROOT`、`~/Android/Sdk`、`/opt/android-sdk`）并写入 `local.properties`，产物在 `app/build/outputs/apk/`，文件名形如 `SmartTodo-debug-v3.14-debug.apk`。
+
+> 把 `local.properties.example` 复制为 `local.properties` 并改 `sdk.dir` 为你的 SDK 路径，即可不用脚本、直接用 `./gradlew assembleDebug` 打包。
+
+### 方式二：GitHub Actions 云端打包（无需本地环境）
+
+推送到 `main`、打 `v*` 的 tag，或在 Actions 页面手动触发 `Build APK` 工作流，CI 会自动跑测试、打包 debug/release，并把 APK 作为 Artifact 上传；打 tag 时还会创建 Release 附带 APK。下载即可安装，本地不需要装 Android SDK。
+
+### 方式三：Android Studio
+
+用 Android Studio（Hedgehog 及以上）打开项目，菜单 `Build > Generate Signed Bundle / APK` 或直接用 Gradle 面板执行 `assembleDebug`。
+
+### 正式签名（可选）
+
+想用自己的签名发布：用 `keytool` 生成 `smarttodo.jks` 放到项目根目录的 `keystore/` 下，然后设置环境变量 `SMARTTODO_STORE_PASSWORD`、`SMARTTODO_KEY_ALIAS`、`SMARTTODO_KEY_PASSWORD` 再打 release 包。没有签名文件也能打 release 包（自动退化用 debug 签名，仅适合自测，不能上架）。
+
+`local.properties`、`keystore/` 均未纳入版本管理，不会泄露签名信息。
 
 ## 目录结构
 

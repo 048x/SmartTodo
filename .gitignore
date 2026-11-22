@@ -6,7 +6,11 @@ build/
 # Android Studio / IntelliJ
 .idea/
 *.iml
+# 本地配置与签名（不随仓库分发）
 local.properties
+keystore/
+*.jks
+*.keystore
 captures/
 .externalNativeBuild/
 .cxx/
