@@ -239,7 +239,8 @@ public class DueParser {
             day.add(Calendar.DAY_OF_MONTH, idx);
             if (token.startsWith("下周")) {
                 day.add(Calendar.DAY_OF_MONTH, 7);
-            } else if (!token.startsWith("本周") && isBeforeDay(day, c)) {
+            } else if (isBeforeDay(day, c)) {
+                // "本周X"/"周X"：若算出来已过去，顺延到下周同一天（用户想要的是"下一个周X"）
                 day.add(Calendar.DAY_OF_MONTH, 7);
             }
             setDate(c, day);
@@ -250,14 +251,17 @@ public class DueParser {
         if (m.find()) {
             int month = parseInt(m.group(1), 0) - 1;
             int day = parseInt(m.group(2), 0);
+            // 先把日置 1 再设月份，避免"5月31日改设成2月"时 Calendar 自动进位到 3 月
+            c.set(Calendar.DAY_OF_MONTH, 1);
             c.set(Calendar.MONTH, month);
-            c.set(Calendar.DAY_OF_MONTH, day);
+            setDayClamped(c, day);
             return;
         }
         m = Pattern.compile("(\\d{1,2})[-/](\\d{1,2})").matcher(token);
         if (m.find()) {
+            c.set(Calendar.DAY_OF_MONTH, 1);
             c.set(Calendar.MONTH, parseInt(m.group(1), 0) - 1);
-            c.set(Calendar.DAY_OF_MONTH, parseInt(m.group(2), 0));
+            setDayClamped(c, parseInt(m.group(2), 0));
         }
     }
 
